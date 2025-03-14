@@ -1,0 +1,56 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment variables
+.env
+
+# Temporary files
+temp_*.pdf
+temp_*.txt
+
+# Uploaded files
+uploads/
+
+# Logs
+*.log
+
+# Database files
+*.db
+*.sqlite
+
+# Model files (if you have any large ML models)
+*.model
+*.h5
+*.pkl
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Streamlit specific
+.streamlit/secrets.toml
+
+# Miscellaneous
+*.bak
+*.tmp
