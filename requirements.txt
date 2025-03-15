@@ -5,9 +5,8 @@ PyPDF2==3.0.1
 python-dotenv==1.0.0
 openai==1.12.0
 flask==2.0.1
-# Make sure gunicorn is installed properly
 gunicorn==20.1.0
 flask-cors==3.0.10
 pinecone-client==2.2.1
 langchain-pinecone==0.0.2
-langchain-ollama==0.2.3 
+langchain-ollama==0.2.3  
