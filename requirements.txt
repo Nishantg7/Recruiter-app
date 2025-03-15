@@ -10,3 +10,4 @@ flask-cors
 pinecone-client
 langchain-pinecone
 langchain-ollama
+langchain-groq
