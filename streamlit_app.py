@@ -87,6 +87,9 @@ load_dotenv()
 # Define API URLs - this will be the URL of your deployed backend
 API_URL = st.secrets.get("API_URL", "https://recruiter-app-backend.onrender.com")
 
+# Define the backend API URL
+BACKEND_API_URL = "https://recruiter-app-backend.onrender.com"
+
 # Cache the calculation function to improve performance
 @st.cache_data
 def extract_text_from_pdf(pdf_file):
@@ -346,6 +349,36 @@ def display_analysis_results(analysis):
     except Exception as e:
         st.error(f"Error displaying results: {str(e)}")
         st.json(analysis)  # Display raw JSON as fallback
+
+def check_backend_health():
+    try:
+        response = requests.get(f"{BACKEND_API_URL}/")
+        if response.status_code == 200:
+            return True
+        return False
+    except Exception:
+        return False
+
+def analyze_resume_with_api(resume_file, jd_file):
+    try:
+        # Prepare the files for the API request
+        files = {
+            'resume': resume_file,
+            'job_description': jd_file
+        }
+        
+        # Send POST request to the API
+        response = requests.post(f"{BACKEND_API_URL}/analyze", files=files)
+        
+        # Check if request was successful
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"Error: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"Error connecting to backend service: {str(e)}")
+        return None
 
 def main():
     st.title("Resume - JD Analyzer")
