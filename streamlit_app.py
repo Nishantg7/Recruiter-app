@@ -351,12 +351,26 @@ def display_analysis_results(analysis):
         st.json(analysis)  # Display raw JSON as fallback
 
 def check_backend_health():
+    """Check if the backend API service is up and running"""
     try:
-        response = requests.get(f"{BACKEND_API_URL}/")
+        st.info(f"Checking backend health at {BACKEND_API_URL}...")
+        response = requests.get(f"{BACKEND_API_URL}/", timeout=10)
+        
         if response.status_code == 200:
+            st.success("Backend API is online and responding.")
             return True
+        else:
+            st.error(f"Backend API returned status code {response.status_code}")
+            st.error(f"Response: {response.text[:200]}...")
+            return False
+    except requests.exceptions.Timeout:
+        st.error("Backend API check timed out. The service might be starting up or overloaded.")
         return False
-    except Exception:
+    except requests.exceptions.ConnectionError:
+        st.error("Unable to connect to the backend API. The service might be down or unreachable.")
+        return False
+    except Exception as e:
+        st.error(f"Error checking backend health: {str(e)}")
         return False
 
 def analyze_resume_with_api(resume_file, jd_file):
@@ -418,12 +432,32 @@ def main():
                 st.error("Please enter your OpenAI API key for local analysis.")
             else:
                 with st.spinner("Analyzing... This may take up to 2 minutes"):
-                    # Choose analysis method based on user selection
+                    # Check if backend API is available for remote analysis
                     if api_mode == "Use Remote API (Recommended)":
+                        backend_available = check_backend_health()
+                        if not backend_available:
+                            st.error("Backend API is not available. Please try using Local Analysis or try again later.")
+                            return
+                        
+                        st.info("Backend API is available. Proceeding with analysis...")
+                        
                         # Reset the file pointers to the beginning
                         resume_file.seek(0)
                         jd_file.seek(0)
+                        
+                        # Call API and get results
                         analysis, score = calculate_matching_score_api(resume_file, jd_file)
+                        
+                        # Check if analysis was successful
+                        if analysis is None:
+                            st.error("Analysis failed. Please check the error messages above or try Local Analysis.")
+                            return
+                            
+                        # Log what we received for debugging
+                        st.info(f"Received analysis type: {type(analysis)}")
+                        if isinstance(analysis, dict):
+                            st.info(f"Analysis keys: {list(analysis.keys())}")
+                            
                     else:  # Local Analysis
                         # Extract text from PDF files
                         resume_text = extract_text_from_pdf(resume_file)
@@ -435,13 +469,21 @@ def main():
                         
                         try:
                             analysis = json.loads(analysis_json)
-                        except:
-                            st.error(f"Error parsing analysis result: {analysis_json}")
+                        except json.JSONDecodeError as e:
+                            st.error(f"Error parsing analysis result: {e}")
+                            st.error(f"Raw result: {analysis_json[:200]}...")  # Show first 200 chars
                             analysis = None
                     
                     # Display analysis results if successful
                     if analysis:
-                        display_analysis_results(analysis)
+                        try:
+                            display_analysis_results(analysis)
+                        except Exception as e:
+                            st.error(f"Error in display_analysis_results: {str(e)}")
+                            st.error("Raw analysis data:")
+                            st.json(analysis)
+                    else:
+                        st.error("No analysis data was generated. Please try again or switch analysis modes.")
         
         # Show example at bottom of page
         with st.expander("About this tool"):
