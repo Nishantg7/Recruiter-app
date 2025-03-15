@@ -111,17 +111,46 @@ def calculate_matching_score_api(resume_file, jd_file):
         
         # Send the request to the API
         with st.spinner('Analyzing... This may take up to 2 minutes'):
+            st.info("Making API call to backend service...")
             response = requests.post(f"{API_URL}/analyze", files=files, timeout=180)
             
             if response.status_code != 200:
-                st.error(f"API Error: {response.text}")
+                st.error(f"API Error: Status code {response.status_code}\nResponse: {response.text}")
                 return None, None
                 
-            result = response.json()
-            return result.get('analysis', {}).get('analysis_json'), result.get('analysis', {}).get('matching_score')
-    
+            # Get the raw result
+            raw_result = response.json()
+            
+            # Check the structure - this is debugging code we can keep for now
+            if 'analysis' in raw_result:
+                # Original expected structure
+                result = raw_result
+                analysis_json = result.get('analysis', {}).get('analysis_json')
+                matching_score = result.get('analysis', {}).get('matching_score')
+            else:
+                # Direct structure from the API
+                # The API seems to be returning the analysis data directly at the top level
+                st.info("Using direct API response structure")
+                analysis_json = raw_result  # The whole response is the analysis JSON
+                matching_score = raw_result.get('score')  # Score is directly in the response
+                
+            # Convert the data structure to what the display function expects
+            formatted_result = {
+                'analysis_json': analysis_json if analysis_json else raw_result,
+                'matching_score': matching_score if matching_score else raw_result.get('score')
+            }
+            
+            return formatted_result, formatted_result.get('matching_score')
+            
+    except requests.exceptions.Timeout:
+        st.error("Request timed out. The backend service might be overloaded or starting up.")
+        return None, None
+    except requests.exceptions.ConnectionError:
+        st.error("Unable to connect to the backend API. The service might be down or unreachable.")
+        return None, None
     except Exception as e:
         st.error(f"Error calling API: {str(e)}")
+        st.error(f"Error details: {type(e).__name__}")
         return None, None
 
 # Original local calculation function - kept as fallback
@@ -242,18 +271,68 @@ def format_analysis_output(analysis_result):
 
 def display_analysis_results(analysis):
     try:
+        st.info("Processing analysis results...")
+        
+        # Check if analysis is None
+        if analysis is None:
+            st.error("No analysis results to display. The analysis process failed.")
+            return
+            
         # Get the analysis data
-        analysis_data = analysis.get('analysis_json', {})
-        matching_score = analysis.get('matching_score', 'N/A')
+        if isinstance(analysis, dict):
+            # It's already a dict, get direct or nested data
+            if 'analysis_json' in analysis:
+                # Using the nested structure
+                analysis_data = analysis.get('analysis_json', {})
+                matching_score = analysis.get('matching_score', 'N/A')
+            else:
+                # Direct API response
+                analysis_data = analysis
+                matching_score = analysis.get('score', 'N/A')
+        else:
+            # Try to parse if it's a string
+            try:
+                analysis_data = json.loads(analysis)
+                matching_score = 'N/A'
+            except json.JSONDecodeError:
+                st.error(f"Failed to parse analysis string")
+                return
+        
+        # If analysis_data is still a string, try to parse it
+        if isinstance(analysis_data, str):
+            try:
+                analysis_data = json.loads(analysis_data)
+            except json.JSONDecodeError:
+                st.error("Failed to parse nested JSON string")
+                return
 
         # Display matching score
         st.header("📊 Overall Match Score")
         try:
-            score = float(matching_score.strip('%') if isinstance(matching_score, str) else matching_score)
-            st.progress(score/100)
-            st.metric("Match Score", f"{score}%")
-        except (ValueError, AttributeError):
-            st.warning(f"Score: {matching_score}")
+            # Try multiple possible score fields
+            score_value = None
+            
+            # Look for score in different locations
+            if matching_score != 'N/A':
+                score_value = matching_score
+            elif 'score' in analysis_data:
+                score_value = analysis_data['score']
+            elif 'matching_score' in analysis_data:
+                score_value = analysis_data['matching_score']
+                
+            if score_value:
+                # Convert to float and remove % if present
+                if isinstance(score_value, str) and '%' in score_value:
+                    score = float(score_value.strip('%'))
+                else:
+                    score = float(score_value)
+                
+                st.progress(score/100)
+                st.metric("Match Score", f"{score}%")
+            else:
+                st.warning(f"Score: N/A")
+        except (ValueError, AttributeError, TypeError) as e:
+            st.warning(f"Could not process score: {str(e)}")
 
         # Display candidate information
         if 'candidate_name' in analysis_data:
@@ -268,13 +347,26 @@ def display_analysis_results(analysis):
         with col1:
             st.subheader("Matching Skills")
             if 'matching_skills' in analysis_data:
-                for skill in analysis_data['matching_skills']:
-                    st.success(f"✓ {skill}")
+                matching_skills = analysis_data['matching_skills']
+                if isinstance(matching_skills, list):
+                    for skill in matching_skills:
+                        st.success(f"✓ {skill}")
+                elif isinstance(matching_skills, str):
+                    for skill in matching_skills.split(','):
+                        if skill.strip():
+                            st.success(f"✓ {skill.strip()}")
+        
         with col2:
             st.subheader("Missing Skills")
             if 'missing_skills' in analysis_data:
-                for skill in analysis_data['missing_skills']:
-                    st.warning(f"⚠ {skill}")
+                missing_skills = analysis_data['missing_skills']
+                if isinstance(missing_skills, list):
+                    for skill in missing_skills:
+                        st.warning(f"⚠ {skill}")
+                elif isinstance(missing_skills, str):
+                    for skill in missing_skills.split(','):
+                        if skill.strip():
+                            st.warning(f"⚠ {skill.strip()}")
 
         # Display experience and education
         if 'work_experience' in analysis_data or 'education' in analysis_data:
@@ -347,8 +439,13 @@ def display_analysis_results(analysis):
                 st.info(rec['final_suggestion'])
 
     except Exception as e:
-        st.error(f"Error displaying results: {str(e)}")
-        st.json(analysis)  # Display raw JSON as fallback
+        st.error(f"Error displaying analysis results: {str(e)}")
+        st.error(f"Error type: {type(e).__name__}")
+        import traceback
+        st.error(f"Traceback: {traceback.format_exc()}")
+        # Also display raw data for debugging
+        st.subheader("Raw Analysis Data")
+        st.json(analysis)
 
 def check_backend_health():
     """Check if the backend API service is up and running"""
@@ -447,6 +544,11 @@ def main():
                         
                         # Call API and get results
                         analysis, score = calculate_matching_score_api(resume_file, jd_file)
+                        
+                        # Raw output for debugging
+                        st.subheader("Debug: API Response")
+                        with st.expander("View Raw Response Data"):
+                            st.json(analysis)
                         
                         # Check if analysis was successful
                         if analysis is None:
