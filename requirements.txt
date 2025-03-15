@@ -11,4 +11,4 @@ pinecone-client
 langchain-pinecone
 langchain-ollama
 langchain-groq
->>>>>>> a83b0fcc37cbe7290b711acb5ae4cc7c4a799abd
+
