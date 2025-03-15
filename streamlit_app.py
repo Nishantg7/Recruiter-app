@@ -8,9 +8,84 @@ from langchain.prompts import PromptTemplate
 from PyPDF2 import PdfReader
 import io
 import re
+import requests
+import time
+
+# Add a config file
+st.set_page_config(
+    page_title="Resume-JD Analyzer",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Add custom CSS for better styling
+st.markdown("""
+<style>
+    .main {
+        background-color: #1E1E1E;
+        color: #E0E0E0;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #2C3E50;
+        border-radius: 4px 4px 0px 0px;
+        padding: 10px 20px;
+        color: white;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #3498DB;
+    }
+    .stProgress > div > div {
+        background-color: #4CAF50;
+    }
+    .metric-container {
+        background-color: #1E1E1E;
+        border-radius: 5px;
+        padding: 10px;
+        margin: 5px 0;
+        border-left: 4px solid #3498DB;
+    }
+    .metric-label {
+        color: #E0E0E0;
+        font-size: 14px;
+    }
+    .metric-value {
+        color: white;
+        font-size: 20px;
+        font-weight: bold;
+    }
+    .success-text {
+        color: #4CAF50;
+        font-weight: bold;
+    }
+    .warning-text {
+        color: #FFC107;
+        font-weight: bold;
+    }
+    .soft-skill {
+        display: inline-block;
+        background-color: #2C3E50;
+        color: #E0E0E0;
+        padding: 5px 10px;
+        margin: 3px;
+        border-radius: 15px;
+        font-size: 0.9em;
+        transition: background-color 0.3s;
+    }
+    .soft-skill:hover {
+        background-color: #34495E;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # Load environment variables
 load_dotenv()
+
+# Define API URLs - this will be the URL of your deployed backend
+API_URL = st.secrets.get("API_URL", "https://recruiter-app-backend.onrender.com")
 
 # Cache the calculation function to improve performance
 @st.cache_data
@@ -22,6 +97,31 @@ def extract_text_from_pdf(pdf_file):
         text += page.extract_text() or ""
     return text
 
+def calculate_matching_score_api(resume_file, jd_file):
+    """Calculate matching score using the deployed API"""
+    try:
+        # Prepare the files for the API request
+        files = {
+            'resume': ('resume.pdf', resume_file, 'application/pdf'),
+            'job_description': ('jd.pdf', jd_file, 'application/pdf')
+        }
+        
+        # Send the request to the API
+        with st.spinner('Analyzing... This may take up to 2 minutes'):
+            response = requests.post(f"{API_URL}/analyze", files=files, timeout=180)
+            
+            if response.status_code != 200:
+                st.error(f"API Error: {response.text}")
+                return None, None
+                
+            result = response.json()
+            return result.get('analysis', {}).get('analysis_json'), result.get('analysis', {}).get('matching_score')
+    
+    except Exception as e:
+        st.error(f"Error calling API: {str(e)}")
+        return None, None
+
+# Original local calculation function - kept as fallback
 def calculate_matching_score(resume_text, jd_text, openai_api_key):
     """Calculate matching score between resume and job description"""
     try:
@@ -248,159 +348,114 @@ def display_analysis_results(analysis):
         st.json(analysis)  # Display raw JSON as fallback
 
 def main():
-    # Set page config
-    st.set_page_config(
-        page_title="Resume Analyzer",
-        page_icon="📄",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-
-    # Custom CSS
-    st.markdown("""
-        <style>
-        .main {
-            padding: 2rem;
-        }
-        .stProgress > div > div > div > div {
-            background-color: #00cc00;
-        }
-        .uploadLabel {
-            font-size: 0.8rem;
-            color: #888;
-        }
-        /* Improved metric styling */
-        .stMetric {
-            background-color: #1E1E1E;
-            padding: 1rem;
-            border-radius: 0.5rem;
-            color: white !important;
-        }
-        .stMetric > div {
-            color: white !important;
-        }
-        .stMetric [data-testid="stMetricLabel"] {
-            color: #E0E0E0 !important;
-        }
-        .stMetric [data-testid="stMetricValue"] {
-            color: #FFFFFF !important;
-            font-weight: bold !important;
-        }
-        .stMetric [data-testid="stMetricDelta"] {
-            color: #4CAF50 !important;
-        }
-        /* Progress bar styling */
-        .stProgress > div > div > div {
-            background-color: rgba(255, 255, 255, 0.1);
-        }
-        .stProgress > div > div > div > div {
-            background-color: #4CAF50;
-        }
-        /* Header styling */
-        h1, h2, h3 {
-            color: #FFFFFF !important;
-        }
-        /* General text styling */
-        p, div {
-            color: #E0E0E0;
-        }
-        /* Success and warning colors */
-        .success {
-            color: #4CAF50 !important;
-        }
-        .warning {
-            color: #FFC107 !important;
-        }
-        /* Soft Skills styling */
-        .soft-skill {
-            background-color: #2C3E50;
-            padding: 0.5rem 1rem;
-            border-radius: 1rem;
-            margin: 0.25rem;
-            display: inline-block;
-            color: #E0E0E0 !important;
-        }
-        .soft-skill:hover {
-            background-color: #34495E;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-    # Header
-    st.title("📄 Resume and Job Description Analyzer")
-    st.markdown("---")
-
-    # API Key input (hidden in sidebar)
-    with st.sidebar:
-        st.subheader("OpenAI API Key")
-        openai_api_key = st.text_input("Enter your OpenAI API Key", type="password", help="Get your API key from https://platform.openai.com/api-keys")
-        st.markdown("---")
-        st.markdown("### About")
-        st.markdown("This app analyzes resumes against job descriptions to calculate a match score and provide detailed feedback.")
-
-    # Create two columns for file upload
-    col1, col2 = st.columns(2)
+    st.title("Resume - JD Analyzer")
     
-    with col1:
-        st.subheader("Upload Job Description")
-        jd_file = st.file_uploader(
-            label="Upload Job Description PDF",
-            type=["pdf"],
-            key="jd",
-            help="Upload a PDF file containing the job description"
-        )
-
-    with col2:
-        st.subheader("Upload Resume")
-        resume_file = st.file_uploader(
-            label="Upload Resume PDF",
-            type=["pdf"],
-            key="resume",
-            help="Upload a PDF file containing the resume"
-        )
-
-    # Analysis button with loading state
-    if st.button("🔍 Analyze Match", type="primary"):
-        if not openai_api_key:
-            st.error("Please enter your OpenAI API Key in the sidebar.")
-            return
+    # Create tabs for better organization
+    tab1, tab2 = st.tabs(["📊 Analysis", "ℹ️ About"])
+    
+    with tab1:
+        st.header("Upload Resume and Job Description")
         
-        if not (resume_file and jd_file):
-            st.error("Please upload both resume and job description files.")
-            return
-
-        with st.spinner("Analyzing documents..."):
-            try:
-                # Extract text from PDF files
-                resume_text = extract_text_from_pdf(resume_file)
-                jd_text = extract_text_from_pdf(jd_file)
-                
-                # Perform the analysis
-                analysis_result = calculate_matching_score(resume_text, jd_text, openai_api_key)
-                
-                if analysis_result:
-                    formatted_result = format_analysis_output(analysis_result)
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            resume_file = st.file_uploader("Upload Resume (PDF)", type=["pdf"])
+            
+        with col2:
+            jd_file = st.file_uploader("Upload Job Description (PDF)", type=["pdf"])
+        
+        api_mode = st.radio(
+            "Analysis Mode",
+            ["Use Remote API (Recommended)", "Use Local Analysis"],
+            index=0,
+            help="Remote API is more reliable but requires internet connection. Local analysis uses your OpenAI API key."
+        )
+        
+        if api_mode == "Use Local Analysis":
+            openai_api_key = st.text_input("Enter your OpenAI API Key", type="password")
+        else:
+            openai_api_key = None
+            
+        analyze_button = st.button("Analyze", type="primary")
+        
+        if analyze_button:
+            if not resume_file or not jd_file:
+                st.error("Please upload both resume and job description files.")
+            elif api_mode == "Use Local Analysis" and not openai_api_key:
+                st.error("Please enter your OpenAI API key for local analysis.")
+            else:
+                with st.spinner("Analyzing... This may take up to 2 minutes"):
+                    # Choose analysis method based on user selection
+                    if api_mode == "Use Remote API (Recommended)":
+                        # Reset the file pointers to the beginning
+                        resume_file.seek(0)
+                        jd_file.seek(0)
+                        analysis, score = calculate_matching_score_api(resume_file, jd_file)
+                    else:  # Local Analysis
+                        # Extract text from PDF files
+                        resume_text = extract_text_from_pdf(resume_file)
+                        jd_text = extract_text_from_pdf(jd_file)
+                        
+                        # Perform analysis
+                        analysis_result = calculate_matching_score(resume_text, jd_text, openai_api_key)
+                        analysis_json, score = format_analysis_output(analysis_result)
+                        
+                        try:
+                            analysis = json.loads(analysis_json)
+                        except:
+                            st.error(f"Error parsing analysis result: {analysis_json}")
+                            analysis = None
                     
-                    st.success("✅ Analysis Complete!")
-                    st.markdown("---")
-                    display_analysis_results(formatted_result)
-                else:
-                    st.error("❌ Error in analysis")
-                    st.error("Failed to get analysis result")
-
-            except Exception as e:
-                st.error(f"❌ An error occurred: {str(e)}")
-
-    # Footer
-    st.markdown("---")
-    st.markdown(
-        """
-        <div style='text-align: center'>
-            <p>Made with ❤️ by Your Resume Analyzer</p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+                    # Display analysis results if successful
+                    if analysis:
+                        display_analysis_results(analysis)
+        
+        # Show example at bottom of page
+        with st.expander("About this tool"):
+            st.markdown("""
+            This tool uses AI to analyze how well a resume matches a job description. It provides a matching score
+            and detailed feedback to help HR professionals make better shortlisting decisions.
+            
+            **How it works:**
+            1. Upload a resume and job description (PDF format)
+            2. Choose your analysis mode (Remote API or Local)
+            3. Click Analyze
+            4. View the detailed results and recommendations
+            
+            **Note:** Analysis takes about 1-2 minutes to complete.
+            """)
+    
+    with tab2:
+        st.markdown("""
+        # About Resume-JD Analyzer
+        
+        This application helps HR professionals and recruiters evaluate how well a candidate's resume matches a job description.
+        
+        ## Features
+        
+        - **Detailed Analysis:** Evaluates technical skills, work experience, education, soft skills, and adaptability
+        - **Scoring System:** Provides a numerical score for each category and an overall match percentage
+        - **Recommendations:** Highlights strengths and areas for improvement
+        - **Easy to Use:** Simple interface for uploading documents and viewing results
+        
+        ## How It Works
+        
+        The application uses advanced AI to:
+        1. Extract text from resume and job description PDFs
+        2. Analyze key components and requirements
+        3. Calculate a matching score based on various factors
+        4. Provide detailed feedback and recommendations
+        
+        ## Privacy
+        
+        - Documents are processed securely
+        - No data is stored permanently
+        - Analysis is performed on-demand only
+        
+        ## Feedback
+        
+        We welcome your feedback to improve this tool! Please reach out with any suggestions or issues.
+        """)
 
 if __name__ == "__main__":
     main()
